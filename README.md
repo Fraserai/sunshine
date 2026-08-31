@@ -1,0 +1,229 @@
+# Sunshine
+
+A full-screen generative visual canvas directed by a natural voice conversation.
+
+You talk. The AI talks back. When showing you something would explain it better than
+words, the AI silently decides what the entire display should become — and the screen
+becomes it.
+
+There is no feed, no chat, no settings. One screen, one conversation, one canvas.
+
+---
+
+## Architecture
+
+```
+  iPhone microphone
+         │
+         ▼
+  ElevenLabs Agent  ──────────────────────────────────┐
+         │  (WebRTC / LiveKit, private agent)         │
+         ├──► GPT-5.6 Sol                             │
+         │       ├──► spoken response ────────────────┤
+         │       └──► client tool: direct_visual(…)   │
+         │                    │                       ▼
+         │                    │              ElevenLabs voice audio
+         │                    │                       │
+         │                    │                       ▼
+         │                    │                iPhone speaker
+         │                    ▼
+         │            VisualEngine  (mobile/src/visual/VisualEngine.ts)
+         │            mints an epoch, returns immediately
+         │                    │
+         │                    ▼
+         │            POST /api/visual/generate        server/
+         │                    │
+         │        ┌───────────┴───────────┐
+         │        │                       │
+         │     action=new          action=continue | redirect
+         │        │                       │
+         │        │              fal-ai/ffmpeg-api/extract-frame
+         │        │                  (frame_type: "last")
+         │        │                       │
+         │        ▼                       ▼
+         │  minimax/h3-max/        minimax/h3-max/
+         │   text-to-video          image-to-video
+         │   9:16 · 768P · 5s        (inherits 9:16 from frame)
+         │        └───────────┬───────────┘
+         │                    ▼
+         │                video URL
+         │                    │
+         │                    ▼
+         │        epoch still current?  ── no ──► discarded, never shown
+         │                    │ yes
+         │                    ▼
+         │       preload into the off-screen player
+         │                    │
+         │                    ▼
+         │          crossfade (220ms) · muted · cover
+         ▼                    ▼
+  GET /api/voice/token   full-screen iPhone video
+  (server-minted WebRTC token — no API key on device)
+```
+
+The voice path and the visual path never block each other. `direct_visual` queues work
+and returns instantly, so the agent keeps speaking while a render is in flight. If fal is
+slow, queued or failing, the conversation is unaffected.
+
+### The one invariant
+
+Every visual command mints a new monotonically increasing **epoch**. A generation result
+is applied only if its epoch is still current. Exactly one generation is ever in flight.
+So when you interrupt mid-render, the superseded clip is dropped on the floor — it can
+never appear after the thing you actually asked for.
+
+`npm test` verifies this headlessly, including the rapid-interruption case.
+
+---
+
+## Layout
+
+```
+server/                     tiny TypeScript backend — holds every secret
+  src/
+    routes/voice.ts         GET  /api/voice/token      mints a WebRTC token
+    routes/visual.ts        POST /api/visual/generate  H3 Max + frame extraction
+    elevenlabs/
+      token.ts              private-agent token minting
+      agentConfig.ts        the agent's system prompt + direct_visual tool, in git
+    fal/
+      h3max.ts              text-to-video, image-to-video, extract-frame
+      prompts.ts            prompt composition and negative tails
+  scripts/
+    provision-agent.ts      creates/updates the agent from agentConfig.ts
+    smoke-fal.ts            measures real generation latency
+    smoke-voice.ts          verifies the private agent mints a token
+
+mobile/                     Expo / React Native, iPhone-first, portrait only
+  App.tsx
+  src/
+    screens/CanvasScreen.tsx    the entire product, one screen
+    visual/VisualEngine.ts      epochs, staleness, preload, continuation
+    voice/useVoiceSession.ts    ElevenLabs session + direct_visual registration
+    components/
+      VideoCanvas.tsx           two players, crossfade, muted, cover
+      IdleCanvas.tsx            the neutral canvas
+      VoiceControl.tsx          the only chrome
+      DebugOverlay.tsx          dev builds only
+    lib/{api,config,log}.ts
+  scripts/engine-test.ts        headless ordering guarantees
+```
+
+---
+
+## Environment variables
+
+### `server/.env` — secrets, never committed, never shipped to the device
+
+| Variable | Where to get it |
+| --- | --- |
+| `ELEVENLABS_API_KEY` | https://elevenlabs.io/app/settings/api-keys |
+| `ELEVENLABS_AGENT_ID` | printed by `npm run provision:agent` |
+| `FAL_KEY` | https://fal.ai/dashboard/keys |
+
+Optional tuning: `PORT` (8787), `VISUAL_RESOLUTION` (`768P`, set `480P` only to cut cost
+while debugging), `VISUAL_DURATION_SECONDS` (5), `VISUAL_PROMPT_EXPANSION` (`balanced`),
+`VISUAL_TIMEOUT_MS` (120000), `ELEVENLABS_VOICE_ID`.
+
+### `mobile/.env` — client-safe only
+
+| Variable | Value |
+| --- | --- |
+| `EXPO_PUBLIC_API_BASE_URL` | `http://<your-mac-LAN-ip>:8787` for a physical iPhone |
+| `EXPO_PUBLIC_VISUAL_MAX_AUTO_SEGMENTS` | `4` — ceiling on unattended continuation |
+
+Anything `EXPO_PUBLIC_*` is embedded in the app bundle. No API key ever goes here.
+
+---
+
+## Running it
+
+```bash
+npm run install:all
+cp server/.env.example server/.env      # fill in the two keys
+cp mobile/.env.example mobile/.env      # point at your Mac's LAN IP
+```
+
+Create the agent (prints the id to paste into `server/.env`):
+
+```bash
+npm run provision:agent
+```
+
+Start the backend:
+
+```bash
+npm run server
+```
+
+Check both integrations before touching the phone:
+
+```bash
+npm run smoke:voice     # private agent mints a WebRTC token
+npm run smoke:fal       # real H3 Max latency, end to end
+```
+
+### Onto a physical iPhone
+
+The ElevenLabs SDK pulls in LiveKit/WebRTC native modules, so **Expo Go will not work** —
+this needs a development build.
+
+**With Xcode installed locally:**
+
+```bash
+cd mobile
+npx expo run:ios --device
+```
+
+Then `npx expo start --dev-client` for subsequent JS reloads.
+
+One-time Apple setup: open `mobile/ios/Sunshine.xcworkspace` in Xcode once, select your
+team under Signing & Capabilities, and trust the developer profile on the phone under
+Settings → General → VPN & Device Management.
+
+**Without Xcode, via EAS cloud build:**
+
+```bash
+cd mobile
+npx eas-cli login
+npx eas-cli build --profile development --platform ios
+```
+
+Install the resulting build from the QR code. This needs a paid Apple Developer account
+to register the device for ad-hoc distribution.
+
+---
+
+## The ElevenLabs agent
+
+`npm run provision:agent` pushes everything below from `server/src/elevenlabs/agentConfig.ts`,
+so the agent config is version-controlled rather than living only in the dashboard.
+Re-push edits with `npm run provision:agent -- --update`.
+
+| Setting | Value |
+| --- | --- |
+| LLM | `gpt-5.6-sol` |
+| TTS model | `eleven_v3_conversational` (Expressive Mode) |
+| Turn eagerness | `normal` |
+| Interruptions | enabled |
+| Authentication | private (`platform_settings.auth.enable_auth: true`) |
+| Client tool | `direct_visual`, `expects_response: false` |
+| Tool parameters | `action` (`new`/`continue`/`redirect`/`clear`), `prompt` (string), `continuous` (boolean) |
+
+`expects_response: false` is what makes the tool non-blocking: the agent fires it and
+keeps talking rather than waiting for a render.
+
+---
+
+## Verifying
+
+```bash
+npm run verify     # typecheck (both projects) + lint + engine tests
+```
+
+`npm test` alone runs the VisualEngine ordering guarantees: stale results discarded,
+clear invalidating in-flight work, continuation bounded, failures leaving the scene intact.
+
+In development builds, tap the small badge under the Dynamic Island for a debug overlay
+showing connection state, epoch, action, fal request id, latency, active/preload player,
+and a timestamped timeline from tool call to first visible frame.

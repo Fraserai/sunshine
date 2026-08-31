@@ -1,0 +1,18 @@
+{
+  "name": "sunshine-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A full-screen generative visual canvas directed by a natural voice conversation.",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix mobile install",
+    "server": "npm --prefix server run dev",
+    "app": "npm --prefix mobile run start",
+    "provision:agent": "npm --prefix server run provision:agent",
+    "smoke:fal": "npm --prefix server run smoke:fal",
+    "smoke:voice": "npm --prefix server run smoke:voice",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix mobile run typecheck",
+    "lint": "npm --prefix mobile run lint",
+    "test": "npm --prefix mobile run test:engine",
+    "verify": "npm run typecheck && npm run lint && npm test"
+  }
+}

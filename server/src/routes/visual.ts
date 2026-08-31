@@ -1,0 +1,119 @@
+import { Router } from "express";
+import { z } from "zod";
+import { extractLastFrame, imageToVideo, textToVideo, type VideoResult } from "../fal/h3max.js";
+import { composeContinuePrompt, composeNewPrompt, composeRedirectPrompt } from "../fal/prompts.js";
+import { log } from "../log.js";
+import type { VisualGenerateResponse } from "../types.js";
+
+export const visualRouter: Router = Router();
+
+const bodySchema = z
+  .object({
+    action: z.enum(["new", "continue", "redirect"]),
+    prompt: z.string().trim().min(1).max(4000),
+    previousVideoUrl: z.url().optional(),
+    generationId: z.number().int().nonnegative(),
+  })
+  .refine((b) => b.action === "new" || Boolean(b.previousVideoUrl), {
+    message: "previousVideoUrl is required for continue and redirect",
+    path: ["previousVideoUrl"],
+  });
+
+/** Transient enough to be worth exactly one more attempt. */
+function isTransient(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (typeof status === "number") return status === 408 || status === 429 || status >= 500;
+  const msg = String(err).toLowerCase();
+  return (
+    msg.includes("timed out") ||
+    msg.includes("timeout") ||
+    msg.includes("econnreset") ||
+    msg.includes("socket hang up") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network")
+  );
+}
+
+async function onceRetried<T>(label: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (!isTransient(err)) throw err;
+    log.warn("fal.retry", { label, error: String(err) });
+    return work();
+  }
+}
+
+visualRouter.post("/generate", async (req, res) => {
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: { code: "invalid_request", message: z.prettifyError(parsed.error) },
+    });
+    return;
+  }
+
+  const { action, prompt, previousVideoUrl, generationId } = parsed.data;
+  const startedAt = Date.now();
+  log.info("visual.request", { generationId, action, promptChars: prompt.length });
+
+  try {
+    let video: VideoResult;
+    let extractFrameMs: number | undefined;
+    let degradedToNew = false;
+    let generateStartedAt = Date.now();
+
+    if (action === "new") {
+      video = await onceRetried("text_to_video", () => textToVideo(composeNewPrompt(prompt)));
+    } else {
+      // Continuity path: last frame of the previous clip seeds the next one.
+      let frameUrl: string | null = null;
+      const frameStartedAt = Date.now();
+      try {
+        frameUrl = await onceRetried("extract_frame", () => extractLastFrame(previousVideoUrl!));
+      } catch (err) {
+        // Losing continuity is far better than losing the visual entirely.
+        log.warn("visual.extract_frame_failed_falling_back_to_new", { generationId, error: String(err) });
+      }
+      extractFrameMs = Date.now() - frameStartedAt;
+
+      generateStartedAt = Date.now();
+      if (frameUrl) {
+        const continuationPrompt =
+          action === "continue" ? composeContinuePrompt(prompt) : composeRedirectPrompt(prompt);
+        video = await onceRetried("image_to_video", () => imageToVideo(continuationPrompt, frameUrl!));
+      } else {
+        degradedToNew = true;
+        video = await onceRetried("text_to_video_fallback", () => textToVideo(composeNewPrompt(prompt)));
+      }
+    }
+
+    const payload: VisualGenerateResponse = {
+      generationId,
+      videoUrl: video.videoUrl,
+      requestId: video.requestId,
+      ...(video.timings ? { inferenceTiming: video.timings } : {}),
+      ...(video.expandedPrompt ? { expandedPrompt: video.expandedPrompt } : {}),
+      serverTiming: {
+        totalMs: Date.now() - startedAt,
+        ...(extractFrameMs !== undefined ? { extractFrameMs } : {}),
+        generateMs: Date.now() - generateStartedAt,
+      },
+      ...(degradedToNew ? { degradedToNew: true } : {}),
+    };
+
+    log.info("visual.response", {
+      generationId,
+      action,
+      requestId: payload.requestId,
+      totalMs: payload.serverTiming.totalMs,
+      degradedToNew,
+    });
+    res.json(payload);
+  } catch (err) {
+    log.error("visual.failed", { generationId, action, error: String(err) });
+    res.status(502).json({
+      error: { code: "visual_generation_failed", message: "The visual could not be generated." },
+    });
+  }
+});
