@@ -13,6 +13,7 @@
     "typecheck": "npm --prefix server run typecheck && npm --prefix mobile run typecheck",
     "lint": "npm --prefix mobile run lint",
     "test": "npm --prefix mobile run test:engine",
-    "verify": "npm run typecheck && npm run lint && npm test"
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "preflight": "./preflight.sh"
   }
 }

@@ -215,36 +215,79 @@ npm run smoke:voice     # private agent mints a WebRTC token
 `npm run smoke:fal` measures real H3 Max latency end to end, but it performs **two paid
 generations plus one frame extraction**. Only run it when you mean to.
 
-### Onto a physical iPhone
+### Onto a physical iPhone (free Apple ID / Personal Team)
 
 The ElevenLabs SDK pulls in LiveKit/WebRTC native modules, so **Expo Go will not work** —
-this needs a development build.
+this needs a development build compiled locally with Xcode.
 
-**With Xcode installed locally:**
+Nothing in this app requires a paid Apple Developer account. The entitlements file is
+empty and no capability needs provisioning, so a free Apple ID signing as a *Personal
+Team* is enough.
+
+Check where you are at any point:
+
+```bash
+npm run preflight
+```
+
+**1 — Xcode.** Install from the App Store, then **open it once** and let it install its
+additional components. Then point the command-line tools at it:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app
+```
+
+**2 — CocoaPods.** The iOS build needs it, and macOS system Ruby is too old to install a
+current version cleanly. Homebrew is the reliable route:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install cocoapods
+```
+
+**3 — Sign in to Xcode.** Xcode → Settings → Accounts → **+** → Apple ID. Sign in with
+your normal Apple ID. A team called *"Your Name (Personal Team)"* appears — that is the
+free tier, and it is all this app needs.
+
+**4 — Set the signing team.** Generate the native project and open the workspace:
 
 ```bash
 cd mobile
-npx expo run:ios --device
+npx expo prebuild --platform ios --clean
+open ios/Sunshine.xcworkspace
 ```
 
-Then `npx expo start --dev-client` for subsequent JS reloads.
+Select the **Sunshine** target → **Signing & Capabilities** → tick *Automatically manage
+signing* → choose your Personal Team. The bundle identifier is
+`com.caeseyfraser.sunshine`, which is unique to you — do not change it. Free accounts get
+only 10 App ID registrations per 7 days, so churning identifiers is expensive.
 
-One-time Apple setup: open `mobile/ios/Sunshine.xcworkspace` in Xcode once, select your
-team under Signing & Capabilities, and trust the developer profile on the phone under
-Settings → General → VPN & Device Management.
+**5 — Developer Mode on the iPhone.** Connect the phone by cable, unlock it, and tap
+**Trust This Computer**. Developer Mode only appears in Settings *after* the phone has
+been connected to Xcode, so do this step in order:
 
-**Without Xcode, via EAS cloud build:**
+Settings → Privacy & Security → **Developer Mode** → on → the phone restarts → confirm
+after unlocking.
+
+**6 — Build.** In Xcode, pick your iPhone from the device menu and press **Run** (⌘R).
+The first build takes a while — it compiles WebRTC.
+
+**7 — Trust the certificate.** The first launch fails with "Untrusted Developer". On the
+phone: Settings → General → **VPN & Device Management** → your Apple ID → **Trust**.
+Launch the app again.
+
+After that first Xcode build, JS changes need no rebuild:
 
 ```bash
-cd mobile
-npx eas-cli login
-npx eas-cli build --profile development --platform ios
+npm run server          # in one terminal, from the repo root
+cd mobile && npx expo start --dev-client
 ```
 
-Install the resulting build from the QR code. This needs a paid Apple Developer account
-to register the device for ad-hoc distribution.
+#### Two Personal Team limits worth knowing
 
----
+- **Provisioning profiles expire after 7 days.** The app stops launching and you rebuild
+  from Xcode. This is a free-account restriction, not a bug in the project.
+- **Three apps maximum** installed via a free account at once.
 
 ## The ElevenLabs agent
 

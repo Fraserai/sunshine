@@ -11,7 +11,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: "dark",
   backgroundColor: "#000000",
   ios: {
-    bundleIdentifier: "com.sunshine.ai",
+    bundleIdentifier: "com.caeseyfraser.sunshine",
     // iPhone-first: no tablet layout work in scope.
     supportsTablet: false,
     infoPlist: {
@@ -24,7 +24,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    package: "com.sunshine.ai",
+    package: "com.caeseyfraser.sunshine",
     adaptiveIcon: {
       backgroundColor: "#000000",
       foregroundImage: "./assets/android-icon-foreground.png",
