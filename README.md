@@ -125,6 +125,29 @@ Optional tuning: `PORT` (8787), `VISUAL_RESOLUTION` (`768P`, set `480P` only to 
 while debugging), `VISUAL_DURATION_SECONDS` (5), `VISUAL_PROMPT_EXPANSION` (`balanced`),
 `VISUAL_TIMEOUT_MS` (120000), `ELEVENLABS_VOICE_ID`.
 
+### Cost control
+
+fal generations cost real money, so the defaults are deliberately conservative.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `VISUAL_DRY_RUN` | `true` | Serves local placeholder clips instead of calling fal. **Nothing is billed.** |
+| `VISUAL_MAX_RETRIES` | `0` | Retries after a transient failure. Each one is a second billed generation. |
+| `EXPO_PUBLIC_VISUAL_MAX_AUTO_SEGMENTS` | `1` | `1` means no automatic continuation at all — only what the agent explicitly asks for. |
+
+**Dry-run mode is the default.** It exercises the entire experience — crossfade,
+dual-player preload, epochs, stale-generation protection, rapid interruption — against
+five locally served 9:16 placeholder clips, with a simulated 3.5–5.3s render delay so the
+preload timing is realistic. Each clip is a distinct colour, so it is obvious at a glance
+which generation actually reached the screen.
+
+Set `VISUAL_DRY_RUN=false` only when you intend to spend money.
+
+The placeholder clips live in `server/assets/dev/` (60KB total) and are committed.
+Regenerate them with `npm run make:dev-clips` if you ever need to.
+
+`npm test` never touches the network — it replaces `globalThis.fetch` outright.
+
 ### `mobile/.env` — client-safe only
 
 | Variable | Value |
@@ -156,12 +179,14 @@ Start the backend:
 npm run server
 ```
 
-Check both integrations before touching the phone:
+Check the voice path before touching the phone (free):
 
 ```bash
 npm run smoke:voice     # private agent mints a WebRTC token
-npm run smoke:fal       # real H3 Max latency, end to end
 ```
+
+`npm run smoke:fal` measures real H3 Max latency end to end, but it performs **two paid
+generations plus one frame extraction**. Only run it when you mean to.
 
 ### Onto a physical iPhone
 

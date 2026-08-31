@@ -12,11 +12,13 @@ export const API_BASE_URL = (rawBaseUrl ?? "http://localhost:8787").replace(/\/+
 const parsedMaxSegments = Number(process.env.EXPO_PUBLIC_VISUAL_MAX_AUTO_SEGMENTS);
 
 /**
- * Ceiling on unattended continuation so a forgotten session cannot bill forever.
+ * Ceiling on unattended continuation. Every segment is a paid generation, so the
+ * default is 1 — meaning no automatic continuation at all, only what the agent
+ * explicitly asks for. Raise it deliberately, never by accident.
  * A fresh direct_visual command resets the count.
  */
 export const VISUAL_MAX_AUTO_SEGMENTS =
-  Number.isFinite(parsedMaxSegments) && parsedMaxSegments > 0 ? Math.floor(parsedMaxSegments) : 4;
+  Number.isFinite(parsedMaxSegments) && parsedMaxSegments > 0 ? Math.floor(parsedMaxSegments) : 1;
 
 export const IS_DEV = __DEV__;
 

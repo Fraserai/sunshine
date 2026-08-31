@@ -20,6 +20,25 @@ const schema = z.object({
   VISUAL_PROMPT_EXPANSION: z.enum(["balanced", "quality"]).default("balanced"),
   /** Hard ceiling on a single fal round trip before we give up and let voice carry on. */
   VISUAL_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+
+  /**
+   * Retries after a transient fal failure. Every retry is a second BILLED generation,
+   * and a timeout retry can bill twice for work that also completes. Defaults to 0.
+   */
+  VISUAL_MAX_RETRIES: z.coerce.number().int().min(0).max(2).default(0),
+
+  /**
+   * Serves local placeholder clips instead of calling fal. Nothing is billed.
+   * Lets the full on-device experience — crossfade, preload, epochs, staleness,
+   * interruption — be exercised for free.
+   */
+  VISUAL_DRY_RUN: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
+
+  /** Base URL the dry-run placeholder clips are served from, as the phone sees it. */
+  PUBLIC_BASE_URL: z.string().default(""),
 });
 
 export type Env = z.infer<typeof schema>;

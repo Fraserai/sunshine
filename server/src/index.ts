@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import path from "node:path";
 import { loadEnv } from "./env.js";
 import { log } from "./log.js";
 import { visualRouter } from "./routes/visual.js";
@@ -12,8 +13,18 @@ app.use(cors());
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, resolution: env.VISUAL_RESOLUTION, duration: env.VISUAL_DURATION_SECONDS });
+  res.json({
+    ok: true,
+    resolution: env.VISUAL_RESOLUTION,
+    duration: env.VISUAL_DURATION_SECONDS,
+    dryRun: env.VISUAL_DRY_RUN,
+    maxRetries: env.VISUAL_MAX_RETRIES,
+  });
 });
+
+// Placeholder clips for VISUAL_DRY_RUN. Dev-only fixtures, not product assets.
+// Resolved from the package root so it works the same under tsx and the built output.
+app.use("/dev-clips", express.static(path.resolve(process.cwd(), "assets", "dev")));
 
 app.use("/api/voice", voiceRouter);
 app.use("/api/visual", visualRouter);

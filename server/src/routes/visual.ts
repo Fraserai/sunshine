@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
+import { loadEnv } from "../env.js";
+import { dryRunVideo } from "../fal/dryRun.js";
 import { extractLastFrame, imageToVideo, textToVideo, type VideoResult } from "../fal/h3max.js";
 import { composeContinuePrompt, composeNewPrompt, composeRedirectPrompt } from "../fal/prompts.js";
 import { log } from "../log.js";
@@ -34,14 +36,29 @@ function isTransient(err: unknown): boolean {
   );
 }
 
-async function onceRetried<T>(label: string, work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (err) {
-    if (!isTransient(err)) throw err;
-    log.warn("fal.retry", { label, error: String(err) });
-    return work();
+/**
+ * Every retry is a second BILLED generation, so this is opt-in through
+ * VISUAL_MAX_RETRIES and defaults to none.
+ */
+async function withRetries<T>(label: string, work: () => Promise<T>): Promise<T> {
+  const budget = loadEnv().VISUAL_MAX_RETRIES;
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await work();
+    } catch (err) {
+      if (attempt >= budget || !isTransient(err)) throw err;
+      attempt += 1;
+      log.warn("fal.retry", { label, attempt, budget, error: String(err) });
+    }
   }
+}
+
+/** How the phone can reach this server, for dry-run placeholder URLs. */
+function publicBaseUrl(req: { protocol: string; get(name: string): string | undefined }): string {
+  const configured = loadEnv().PUBLIC_BASE_URL;
+  if (configured) return configured.replace(/\/+$/, "");
+  return `${req.protocol}://${req.get("host") ?? "localhost"}`;
 }
 
 visualRouter.post("/generate", async (req, res) => {
@@ -55,7 +72,23 @@ visualRouter.post("/generate", async (req, res) => {
 
   const { action, prompt, previousVideoUrl, generationId } = parsed.data;
   const startedAt = Date.now();
-  log.info("visual.request", { generationId, action, promptChars: prompt.length });
+  const dryRun = loadEnv().VISUAL_DRY_RUN;
+  log.info("visual.request", { generationId, action, promptChars: prompt.length, dryRun });
+
+  if (dryRun) {
+    // No fal call, nothing billed.
+    const video = await dryRunVideo(publicBaseUrl(req), generationId);
+    const payload: VisualGenerateResponse = {
+      generationId,
+      videoUrl: video.videoUrl,
+      requestId: video.requestId,
+      ...(video.timings ? { inferenceTiming: video.timings } : {}),
+      serverTiming: { totalMs: Date.now() - startedAt, generateMs: Date.now() - startedAt },
+    };
+    log.info("visual.response", { generationId, action, dryRun: true, totalMs: payload.serverTiming.totalMs });
+    res.json(payload);
+    return;
+  }
 
   try {
     let video: VideoResult;
@@ -64,13 +97,13 @@ visualRouter.post("/generate", async (req, res) => {
     let generateStartedAt = Date.now();
 
     if (action === "new") {
-      video = await onceRetried("text_to_video", () => textToVideo(composeNewPrompt(prompt)));
+      video = await withRetries("text_to_video", () => textToVideo(composeNewPrompt(prompt)));
     } else {
       // Continuity path: last frame of the previous clip seeds the next one.
       let frameUrl: string | null = null;
       const frameStartedAt = Date.now();
       try {
-        frameUrl = await onceRetried("extract_frame", () => extractLastFrame(previousVideoUrl!));
+        frameUrl = await withRetries("extract_frame", () => extractLastFrame(previousVideoUrl!));
       } catch (err) {
         // Losing continuity is far better than losing the visual entirely.
         log.warn("visual.extract_frame_failed_falling_back_to_new", { generationId, error: String(err) });
@@ -81,10 +114,10 @@ visualRouter.post("/generate", async (req, res) => {
       if (frameUrl) {
         const continuationPrompt =
           action === "continue" ? composeContinuePrompt(prompt) : composeRedirectPrompt(prompt);
-        video = await onceRetried("image_to_video", () => imageToVideo(continuationPrompt, frameUrl!));
+        video = await withRetries("image_to_video", () => imageToVideo(continuationPrompt, frameUrl!));
       } else {
         degradedToNew = true;
-        video = await onceRetried("text_to_video_fallback", () => textToVideo(composeNewPrompt(prompt)));
+        video = await withRetries("text_to_video_fallback", () => textToVideo(composeNewPrompt(prompt)));
       }
     }
 
