@@ -15,6 +15,7 @@ export interface VoiceSession {
   /** Consumer-safe copy, never a raw API error. */
   problem: string | null;
   start: () => Promise<void>;
+  reconnect: () => Promise<void>;
   stop: () => void;
 }
 
@@ -57,13 +58,16 @@ export function useVoiceSession(): VoiceSession {
     },
     onDisconnect: () => {
       timeline("session.disconnected");
-      visualEngine.reset();
       if (intentionalStop.current) {
+        visualEngine.reset();
         setPhase("idle");
         setConversationId(null);
+        setProblem(null);
       } else {
-        // Dropped rather than ended: show a minimal reconnect affordance.
+        // Dropped, not ended. Keep whatever is on screen — it is still the thing
+        // the user was looking at — and offer a way back.
         setPhase("reconnecting");
+        setProblem("Tap to reconnect");
       }
     },
     onModeChange: ({ mode }) => {
@@ -72,12 +76,16 @@ export function useVoiceSession(): VoiceSession {
     onError: (message) => {
       // Raw API text stays in the log; the interface only ever says something calm.
       console.warn("[sunshine] conversation error:", message);
-      setProblem("Lost the connection.");
-      setPhase((current) => (current === "connected" ? "reconnecting" : "failed"));
+      // A mid-session error is not necessarily fatal — let onDisconnect decide the
+      // phase if the connection actually drops.
+      setPhase((current) => (current === "connecting" ? "failed" : current));
+      setProblem((current) =>
+        current ?? (looksLikeMicDenial(message) ? "Microphone access needed" : "Something went wrong"),
+      );
     },
   });
 
-  const start = useCallback(async () => {
+  const open = useCallback(async () => {
     setProblem(null);
     setPhase("connecting");
     timeline("session.start");
@@ -87,7 +95,7 @@ export function useVoiceSession(): VoiceSession {
       conversation.startSession({ conversationToken: token, connectionType: "webrtc" });
     } catch (err) {
       console.warn("[sunshine] could not start session:", err);
-      setProblem("Couldn't connect. Tap to try again.");
+      setProblem("Couldn't connect. Tap to retry");
       setPhase("failed");
     }
   }, [conversation]);
@@ -98,7 +106,18 @@ export function useVoiceSession(): VoiceSession {
     visualEngine.reset();
     setPhase("idle");
     setConversationId(null);
+    setProblem(null);
   }, [conversation]);
+
+  const reconnect = useCallback(async () => {
+    // Tear the half-dead session down first so we never end up double-connected.
+    try {
+      conversation.endSession();
+    } catch {
+      /* already gone */
+    }
+    await open();
+  }, [conversation, open]);
 
   return {
     phase,
@@ -106,7 +125,13 @@ export function useVoiceSession(): VoiceSession {
     isListening: phase === "connected" && !conversation.isSpeaking,
     conversationId,
     problem,
-    start,
+    start: open,
+    reconnect,
     stop,
   };
+}
+
+function looksLikeMicDenial(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("permission") || m.includes("notallowed") || m.includes("denied");
 }

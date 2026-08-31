@@ -34,6 +34,7 @@ export function CanvasScreen(): React.ReactElement {
         isSpeaking={voice.isSpeaking}
         problem={voice.problem}
         onStart={() => void voice.start()}
+        onReconnect={() => void voice.reconnect()}
         onStop={voice.stop}
       />
 

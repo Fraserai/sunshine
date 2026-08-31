@@ -11,6 +11,7 @@ interface Props {
   isSpeaking: boolean;
   problem: string | null;
   onStart: () => void;
+  onReconnect: () => void;
   onStop: () => void;
 }
 
@@ -19,7 +20,14 @@ interface Props {
  * state indicator and a way out. Everything sits in the bottom thumb area so the
  * generated canvas keeps the rest of the display.
  */
-export function VoiceControl({ phase, isSpeaking, problem, onStart, onStop }: Props): React.ReactElement {
+export function VoiceControl({
+  phase,
+  isSpeaking,
+  problem,
+  onStart,
+  onReconnect,
+  onStop,
+}: Props): React.ReactElement {
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 18) + 14;
 
@@ -28,7 +36,13 @@ export function VoiceControl({ phase, isSpeaking, problem, onStart, onStop }: Pr
   return (
     <View style={[styles.root, { paddingBottom: bottom }]} pointerEvents="box-none">
       {connected ? (
-        <ConnectedControl phase={phase} isSpeaking={isSpeaking} onStop={onStop} />
+        <ConnectedControl
+          phase={phase}
+          isSpeaking={isSpeaking}
+          problem={problem}
+          onReconnect={onReconnect}
+          onStop={onStop}
+        />
       ) : (
         <StartControl phase={phase} problem={problem} onStart={onStart} />
       )}
@@ -103,24 +117,36 @@ function StartControl({
 function ConnectedControl({
   phase,
   isSpeaking,
+  problem,
+  onReconnect,
   onStop,
 }: {
   phase: VoicePhase;
   isSpeaking: boolean;
+  problem: string | null;
+  onReconnect: () => void;
   onStop: () => void;
 }): React.ReactElement {
   const reconnecting = phase === "reconnecting";
   return (
     <View style={styles.connectedRow}>
-      <View style={styles.capsule}>
+      {/* When the connection drops the capsule itself becomes the way back in. */}
+      <Pressable
+        onPress={reconnecting ? onReconnect : undefined}
+        disabled={!reconnecting}
+        hitSlop={12}
+        accessibilityRole={reconnecting ? "button" : "text"}
+        accessibilityLabel={reconnecting ? "Reconnect" : "Conversation active"}
+        style={({ pressed }) => [styles.capsule, pressed && styles.endButtonPressed]}
+      >
         <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.capsuleTint} />
         {reconnecting ? (
-          <Text style={styles.capsuleText}>Reconnecting</Text>
+          <Text style={styles.capsuleText}>{problem ?? "Tap to reconnect"}</Text>
         ) : (
           <VoiceBars speaking={isSpeaking} />
         )}
-      </View>
+      </Pressable>
       <Pressable
         onPress={() => {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
