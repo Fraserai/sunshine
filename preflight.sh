@@ -12,9 +12,18 @@ echo "Sunshine preflight"
 echo "──────────────────"
 
 # ---- Xcode ----
+# Expo SDK 57 requires Xcode 26.4+. Below that, expo-modules-jsi fails to compile
+# against Swift 6.2 with a SWIFT_SHARED_REFERENCE error that has no supported workaround.
+XCODE_MIN="26.4"
 if [ -d /Applications/Xcode.app ]; then
   V=$(/usr/bin/plutil -extract CFBundleShortVersionString raw /Applications/Xcode.app/Contents/Info.plist 2>/dev/null)
-  ok "Xcode installed (${V:-unknown version})"
+  if [ -z "$V" ]; then
+    warn "Xcode installed (version unreadable)" "Expo SDK 57 needs $XCODE_MIN or newer."
+  elif [ "$(printf '%s\n' "$XCODE_MIN" "$V" | sort -V | head -1)" = "$XCODE_MIN" ]; then
+    ok "Xcode $V (>= $XCODE_MIN)"
+  else
+    bad "Xcode $V is too old" "Expo SDK 57 needs Xcode $XCODE_MIN+. Update via the App Store."
+  fi
 else
   bad "Xcode not installed" "Install it from the App Store, then open it once."
 fi

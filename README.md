@@ -230,12 +230,22 @@ Check where you are at any point:
 npm run preflight
 ```
 
-**1 — Xcode.** Install from the App Store, then **open it once** and let it install its
-additional components. Then point the command-line tools at it:
+**1 — Xcode 26.4 or newer.** Install from the App Store, then **open it once** and let it
+install its additional components. Then point the command-line tools at it:
 
 ```bash
 sudo xcode-select -s /Applications/Xcode.app
 ```
+
+> **The version matters.** Expo SDK 57 requires **Xcode 26.4+**. On Xcode 26.3, Swift 6.2
+> enforces a C++ interop rule that `expo-modules-jsi` violates, and the build dies with
+> `'RuntimeScheduler' cannot be annotated with either SWIFT_RETURNS_RETAINED or
+> SWIFT_RETURNS_UNRETAINED because it is not returning a SWIFT_SHARED_REFERENCE type`.
+> Expo's maintainers state there is no fix for 26.3 and explicitly advise against patching
+> the header, because it hides the real cause. `npm run preflight` checks this.
+>
+> If you upgrade Xcode and still hit it, clear the cached xcframework:
+> `rm -rf mobile/node_modules/expo-modules-jsi/apple/Products mobile/ios/build`
 
 **2 — CocoaPods.** The iOS build needs it, and macOS system Ruby is too old to install a
 current version cleanly. Homebrew is the reliable route:
