@@ -37,6 +37,8 @@ else
 fi
 
 # ---- CocoaPods ----
+# Homebrew's bin is not always on a non-login shell's PATH, so look there too.
+[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null
 if command -v pod >/dev/null 2>&1; then
   ok "CocoaPods $(pod --version 2>/dev/null)"
 else
