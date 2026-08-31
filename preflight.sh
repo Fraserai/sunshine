@@ -25,10 +25,15 @@ case "$DEV_DIR" in
   *) bad "xcode-select → ${DEV_DIR:-unset}" "sudo xcode-select -s /Applications/Xcode.app" ;;
 esac
 
-if xcodebuild -version >/dev/null 2>&1; then
-  ok "xcodebuild runs (license accepted)"
+# `xcodebuild -version` succeeds even with the licence unaccepted, so probe something
+# that actually requires it.
+LIC=$(xcrun devicectl list devices 2>&1)
+if echo "$LIC" | grep -q "license"; then
+  bad "Xcode licence not accepted" "sudo xcodebuild -license accept"
+elif xcodebuild -version >/dev/null 2>&1; then
+  ok "Xcode licence accepted"
 else
-  bad "xcodebuild not usable" "Open Xcode once to accept the licence and install components."
+  bad "xcodebuild not usable" "Open Xcode once to install components."
 fi
 
 # ---- CocoaPods ----
