@@ -3,6 +3,7 @@ import express from "express";
 import path from "node:path";
 import { loadEnv } from "./env.js";
 import { log } from "./log.js";
+import { spendSummary } from "./fal/spend.js";
 import { visualRouter } from "./routes/visual.js";
 import { voiceRouter } from "./routes/voice.js";
 
@@ -19,6 +20,7 @@ app.get("/health", (_req, res) => {
     duration: env.VISUAL_DURATION_SECONDS,
     dryRun: env.VISUAL_DRY_RUN,
     maxRetries: env.VISUAL_MAX_RETRIES,
+    falSpend: spendSummary(),
   });
 });
 

@@ -12,7 +12,8 @@
     "provision:agent": "tsx scripts/provision-agent.ts",
     "smoke:fal": "tsx scripts/smoke-fal.ts",
     "smoke:voice": "tsx scripts/smoke-voice.ts",
-    "make:dev-clips": "tsx scripts/make-dev-clips.ts"
+    "make:dev-clips": "tsx scripts/make-dev-clips.ts",
+    "spend": "tsx -e \"import('./src/fal/spend.js').then(m=>console.log(m.spendSummary()))\""
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",

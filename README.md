@@ -76,6 +76,33 @@ never appear after the thing you actually asked for.
 
 ---
 
+## Measured latency
+
+Real H3 Max, 9:16, 768P, 5s clips, measured 31 Aug 2026:
+
+| Step | Wall clock | Model-reported inference |
+| --- | --- | --- |
+| `text-to-video` (a new visual) | **7.00s** | 2.96s |
+| `extract-frame` (last frame) | **2.93s** | — |
+| `image-to-video` (a continuation) | **6.99s** | — |
+| Continuation total (extract + generate) | **9.92s** | — |
+
+Output verified as `768x1344` — exactly 9:16 — 5.18s at 24fps, **with an AAC audio track**,
+which is why muting the player is not optional.
+
+Two consequences worth knowing:
+
+- **A new visual is ~7s from tool call to video URL**, before preload and crossfade. The
+  agent talks over that gap by design, which is the entire reason voice and visuals are
+  decoupled.
+- **Continuous mode cannot stay ahead of playback.** Generating the next 5s clip takes
+  ~7s, so a continuous chain will run dry for ~2s per segment. The engine handles this
+  correctly — it holds the final frame rather than flashing black, and crossfades when the
+  next clip lands — but the brief's assumption that generation outruns playback does not
+  hold at current H3 Max latency.
+
+---
+
 ## Layout
 
 ```

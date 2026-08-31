@@ -16,3 +16,6 @@ mobile/android/
 
 # Local export/verification artifacts
 mobile/dist/
+
+# fal spend ledger (approximate, local only)
+server/.spend.json

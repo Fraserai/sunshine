@@ -1,6 +1,7 @@
 import { loadEnv } from "../env.js";
 import { log } from "../log.js";
 import { falClient } from "./client.js";
+import { recordExtractFrame, recordVideo } from "./spend.js";
 
 const TEXT_TO_VIDEO = "minimax/h3-max/text-to-video";
 const IMAGE_TO_VIDEO = "minimax/h3-max/image-to-video";
@@ -66,6 +67,7 @@ export async function textToVideo(prompt: string): Promise<VideoResult> {
     env.VISUAL_TIMEOUT_MS,
     TEXT_TO_VIDEO,
   );
+  recordVideo("text_to_video", env.VISUAL_RESOLUTION, env.VISUAL_DURATION_SECONDS);
   log.info("fal.text_to_video.done", { requestId: result.requestId, ms: Date.now() - started });
   return readVideo(TEXT_TO_VIDEO, result.requestId, result.data as FalVideoOutput);
 }
@@ -91,6 +93,7 @@ export async function imageToVideo(prompt: string, imageUrl: string): Promise<Vi
     env.VISUAL_TIMEOUT_MS,
     IMAGE_TO_VIDEO,
   );
+  recordVideo("image_to_video", env.VISUAL_RESOLUTION, env.VISUAL_DURATION_SECONDS);
   log.info("fal.image_to_video.done", { requestId: result.requestId, ms: Date.now() - started });
   return readVideo(IMAGE_TO_VIDEO, result.requestId, result.data as FalVideoOutput);
 }
@@ -109,6 +112,7 @@ export async function extractLastFrame(videoUrl: string): Promise<string> {
   if (!url) {
     throw new Error(`${EXTRACT_FRAME} returned no image`);
   }
+  recordExtractFrame();
   log.info("fal.extract_frame.done", { requestId: result.requestId, ms: Date.now() - started });
   return url;
 }
