@@ -13,7 +13,8 @@ export type TimelineEvent =
   | "fal.request.error"
   | "preload.complete"
   | "video.visible"
-  | "visual.clear";
+  | "visual.clear"
+  | "visual.surf";
 
 export interface TimelineEntry {
   at: number;

@@ -5,6 +5,16 @@ export interface DirectVisualArgs {
   action: VisualAction;
   prompt: string;
   continuous?: boolean;
+  /** Two or three words naming this world, shown on the channel indicator. */
+  label?: string;
+}
+
+/** A generated world you can return to. Replaying one is free — it is just a CDN URL. */
+export interface Channel {
+  id: number;
+  videoUrl: string;
+  /** Short label the agent gave this world, for the channel indicator. */
+  label: string;
 }
 
 export type VisualState =
@@ -50,4 +60,7 @@ export interface VisualSnapshot {
   lastLatencyMs: number | null;
   lastError: string | null;
   inFlight: number;
+  /** Every world generated this session. Surfing between them costs nothing. */
+  channels: Channel[];
+  channelIndex: number;
 }

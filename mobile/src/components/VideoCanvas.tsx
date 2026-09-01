@@ -2,7 +2,7 @@ import { useEventListener } from "expo";
 import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet } from "react-native";
-import { CROSSFADE_MS } from "../lib/config";
+import { CROSSFADE_MS, REVEAL_MS } from "../lib/config";
 import { visualEngine } from "../visual/VisualEngine";
 import { useVisualSnapshot } from "../visual/useVisualEngine";
 
@@ -19,6 +19,15 @@ function restart(player: VideoPlayer): void {
 function halt(player: VideoPlayer): void {
   try {
     player.pause();
+  } catch {
+    /* released */
+  }
+}
+
+/** A single clip with nothing queued behind it should breathe, not freeze. */
+function setLooping(player: VideoPlayer, loop: boolean): void {
+  try {
+    player.loop = loop;
   } catch {
     /* released */
   }
@@ -47,6 +56,8 @@ export function VideoCanvas(): React.ReactElement {
   const [opacityA] = useState(() => new Animated.Value(1));
   const [opacityB] = useState(() => new Animated.Value(0));
   const [layerOpacity] = useState(() => new Animated.Value(0));
+  // A touch of scale so the world settles into place rather than popping in.
+  const [layerScale] = useState(() => new Animated.Value(1.06));
 
   const urlA = snapshot.slots.a;
   const urlB = snapshot.slots.b;
@@ -94,18 +105,41 @@ export function VideoCanvas(): React.ReactElement {
     return () => animation.stop();
   }, [activeSlot, urlA, urlB, playerA, playerB, opacityA, opacityB]);
 
-  // Fade the whole video layer in on the first clip and out on clear.
+  /**
+   * Loop the visible clip whenever nothing is queued behind it, so a finished
+   * scene keeps moving instead of holding a dead frame. The moment a successor
+   * is rendering or buffered we stop looping, so `playToEnd` can fire and drive
+   * a seamless swap.
+   */
+  const hasSuccessor = Boolean(snapshot.nextVideoUrl) || snapshot.inFlight > 0;
   useEffect(() => {
-    Animated.timing(layerOpacity, {
-      toValue: snapshot.videoVisible ? 1 : 0,
-      duration: CROSSFADE_MS,
-      easing: Easing.inOut(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [snapshot.videoVisible, layerOpacity]);
+    setLooping(activeSlot === "a" ? playerA : playerB, !hasSuccessor);
+  }, [activeSlot, hasSuccessor, playerA, playerB]);
+
+  // Reveal the world on the first clip, and dissolve back to the canvas on clear.
+  useEffect(() => {
+    const showing = snapshot.videoVisible;
+    Animated.parallel([
+      Animated.timing(layerOpacity, {
+        toValue: showing ? 1 : 0,
+        duration: REVEAL_MS,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(layerScale, {
+        toValue: showing ? 1 : 1.06,
+        duration: REVEAL_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [snapshot.videoVisible, layerOpacity, layerScale]);
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { opacity: layerOpacity }]} pointerEvents="none">
+    <Animated.View
+      style={[StyleSheet.absoluteFill, { opacity: layerOpacity, transform: [{ scale: layerScale }] }]}
+      pointerEvents="none"
+    >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: opacityA }]}>
         <VideoView
           style={StyleSheet.absoluteFill}

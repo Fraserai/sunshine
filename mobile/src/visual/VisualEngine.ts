@@ -1,7 +1,7 @@
 import { generateVisual } from "../lib/api";
 import { CROSSFADE_MS, VISUAL_MAX_AUTO_SEGMENTS } from "../lib/config";
 import { markEpochStart, timeline } from "../lib/log";
-import type { DirectVisualArgs, VisualAction, VisualSnapshot, VisualState } from "../types";
+import type { Channel, DirectVisualArgs, VisualAction, VisualSnapshot, VisualState } from "../types";
 
 type Slot = "a" | "b";
 
@@ -49,9 +49,15 @@ export class VisualEngine {
 
   private inFlight: InFlight | null = null;
   private pendingPolicy: SwapPolicy = "immediate";
+  private pendingLabel = "";
   private pendingReady = false;
   private awaitingNextAtClipEnd = false;
   private lastVisibleUrl: string | null = null;
+
+  /** Every world generated this session, in order. Replaying one costs nothing. */
+  private channels: Channel[] = [];
+  private channelIndex = -1;
+  private nextChannelId = 1;
 
   private lastRequestId: string | null = null;
   private lastLatencyMs: number | null = null;
@@ -103,11 +109,43 @@ export class VisualEngine {
 
     this.currentAction = action;
     this.currentPrompt = prompt;
+    this.pendingLabel = (args.label ?? "").trim() || deriveLabel(prompt);
     this.isContinuous = args.continuous ?? false;
     this.segment = 1;
     this.awaitingNextAtClipEnd = false;
 
     this.startGeneration(action, prompt, "immediate");
+  }
+
+  /**
+   * Move through worlds already generated this session. Costs nothing: the clip
+   * is a CDN URL we simply load into the off-screen player and crossfade to.
+   * Wraps around, so the dial never dead-ends.
+   */
+  surf(direction: 1 | -1): void {
+    if (this.channels.length < 2) return;
+
+    const count = this.channels.length;
+    const next = (this.channelIndex + direction + count) % count;
+    const channel = this.channels[next];
+    if (!channel) return;
+
+    this.channelIndex = next;
+    this.currentPrompt = channel.label;
+    this.pendingLabel = channel.label;
+    this.pendingPolicy = "immediate";
+    this.pendingReady = false;
+    this.awaitingNextAtClipEnd = false;
+
+    // Straight into the off-screen player; the canvas crossfades when it buffers.
+    this.slots = { ...this.slots, [this.inactiveSlot()]: channel.videoUrl };
+    timeline("visual.surf", this.epoch, `channel ${next + 1}/${count} · ${channel.label}`);
+    this.emit();
+  }
+
+  /** The world currently on the dial, if any. */
+  currentChannel(): Channel | null {
+    return this.channels[this.channelIndex] ?? null;
   }
 
   clear(): void {
@@ -149,6 +187,8 @@ export class VisualEngine {
     this.slots = { a: null, b: null };
     this.activeSlot = "a";
     this.videoVisible = false;
+    this.channels = [];
+    this.channelIndex = -1;
     this.currentAction = null;
     this.currentPrompt = null;
     this.isContinuous = false;
@@ -278,6 +318,13 @@ export class VisualEngine {
           `${this.lastLatencyMs}ms${result.degradedToNew ? " · continuity lost, fell back to new" : ""}`,
         );
 
+        // Every generated world joins the dial, so it can be surfed back to for free.
+        this.channels = [
+          ...this.channels,
+          { id: this.nextChannelId++, videoUrl: result.videoUrl, label: this.pendingLabel },
+        ];
+        this.channelIndex = this.channels.length - 1;
+
         // Load into whichever player is not currently on screen.
         this.slots = { ...this.slots, [this.inactiveSlot()]: result.videoUrl };
         this.setState("preloading");
@@ -347,6 +394,8 @@ export class VisualEngine {
       lastLatencyMs: this.lastLatencyMs,
       lastError: this.lastError,
       inFlight: this.inFlight ? 1 : 0,
+      channels: this.channels,
+      channelIndex: this.channelIndex,
     };
   }
 
@@ -357,3 +406,9 @@ export class VisualEngine {
 }
 
 export const visualEngine = new VisualEngine();
+
+/** Fallback channel name when the agent does not supply one. */
+function deriveLabel(prompt: string): string {
+  const words = prompt.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).slice(0, 3);
+  return words.join(" ") || "Untitled";
+}

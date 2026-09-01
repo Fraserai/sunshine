@@ -22,5 +22,11 @@ export const VISUAL_MAX_AUTO_SEGMENTS =
 
 export const IS_DEV = __DEV__;
 
-/** Crossfade duration. Long enough to read as continuous, short enough to feel instant. */
-export const CROSSFADE_MS = 220;
+/** Clip-to-clip crossfade. Short, so a continuous world reads as one unbroken take. */
+export const CROSSFADE_MS = 260;
+
+/**
+ * Idle canvas to first video. Deliberately slower than a clip swap — this is the
+ * moment the screen becomes the subject, and cutting to it feels like a glitch.
+ */
+export const REVEAL_MS = 900;

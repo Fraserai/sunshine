@@ -38,7 +38,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "prebuild": "expo prebuild --platform ios --clean",
-    "ios:device": "expo run:ios --device"
+    "ios:device": "expo run:ios --device",
+    "device": "./scripts/build-device.sh"
   },
   "private": true
 }
